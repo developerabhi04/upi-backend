@@ -1,17 +1,43 @@
 import express from 'express';
-import mongoose from 'mongoose';
 import cors from 'cors';
-import paymentRoutes from './Routes/PaymentRoute.js';
+import dotenv from "dotenv";
+import { connectDB } from './database/database.js';
+
+dotenv.config({
+  path: "./database/.env",
+});
+
+
 
 const app = express();
-app.use(cors());
+const PORT = process.env.PORT || 4000;
+const MONGODB = process.env.MONGO_URL;
+
+// Connect to MongoDB
+connectDB(MONGODB);
+
+
 app.use(express.json());
 
-mongoose
-  .connect('mongodb://localhost:27017/upi-demo')
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('Mongo error', err));
+
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL, // Default to localhost if CLIENT_URL is missing
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
+
+// Test Route
+app.get("/", (req, res) => {
+  res.json({ success: true, message: "API is working!" });
+});
+
+
+import paymentRoutes from './Routes/PaymentRoute.js';
+
+
 
 app.use('/api/v1/payment', paymentRoutes);
 
-app.listen(5000, () => console.log('Server running on port 5000'));
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
