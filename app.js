@@ -29,22 +29,23 @@ app.use(
   })
 );
 
-
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    error: 'Transaction failed',
-    code: 'UPI_BLOCKED',
-    message: 'Ensure receiver account is merchant-enabled'
-  });
-});
-
-
+// Security headers middleware
 app.use((req, res, next) => {
-  res.setHeader('X-UPI-Validated', 'true');
-  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Security-Policy', 
+    "default-src 'none';" +
+    "connect-src 'self' https://upi-backend-4.onrender.com;" +
+    "script-src 'self';" +
+    "style-src 'self' 'unsafe-inline';" +
+    "img-src 'self' data:;" +
+    "font-src 'self';" +
+    "frame-src upi://* phonepe://* paytmmp://*;"
+  );
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Strict-Transport-Security', 'max-age=63072000');
   next();
 });
+
 
 
 // Test Route
@@ -52,18 +53,15 @@ app.get("/", (req, res) => {
   res.json({ success: true, message: "API is working!" });
 });
 
-
-app.use((req, res, next) => {
-  res.setHeader('Content-Security-Policy', 
-    "default-src 'self';" +
-    "connect-src 'self' http://localhost:4000 ws://localhost:4000;" +
-    "script-src 'self' 'unsafe-inline';" +
-    "style-src 'self' 'unsafe-inline';" +
-    "img-src 'self' data:;" +
-    "frame-src upi://* phonepe://* paytmmp://*;"
-  );
-  next();
+// Error Handling
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    error: 'Payment processing failed',
+    code: 'UPI_ERR_500'
+  });
 });
+
 
 
 import paymentRoutes from './Routes/PaymentRoute.js';
