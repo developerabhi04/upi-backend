@@ -20,6 +20,22 @@ const paymentConfigSchema = new mongoose.Schema({
     type: String,
     match: [/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/]
   },
+  isMerchantAccount: {
+    type: Boolean,
+    required: true,
+    default: false,
+    validate: {
+      validator: function(v) {
+        return v === true; // Must be true for payments
+      },
+      message: 'Must be a merchant account'
+    }
+  },
+  merchantCategory: {
+    type: String,
+    required: true,
+    enum: ['RETAIL', 'EDUCATION', 'SERVICES'] // Add appropriate categories
+  },
   isActive: {
     type: Boolean,
     default: true

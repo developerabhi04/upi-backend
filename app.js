@@ -25,16 +25,44 @@ app.use(
     origin: process.env.CLIENT_URL, // Default to localhost if CLIENT_URL is missing
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization']
   })
 );
 
 
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    error: 'Transaction failed',
+    code: 'UPI_BLOCKED',
+    message: 'Ensure receiver account is merchant-enabled'
+  });
+});
 
+
+app.use((req, res, next) => {
+  res.setHeader('X-UPI-Validated', 'true');
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 
 
 // Test Route
 app.get("/", (req, res) => {
   res.json({ success: true, message: "API is working!" });
+});
+
+
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', 
+    "default-src 'self';" +
+    "connect-src 'self' http://localhost:4000 ws://localhost:4000;" +
+    "script-src 'self' 'unsafe-inline';" +
+    "style-src 'self' 'unsafe-inline';" +
+    "img-src 'self' data:;" +
+    "frame-src upi://* phonepe://* paytmmp://*;"
+  );
+  next();
 });
 
 

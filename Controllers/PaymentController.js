@@ -41,9 +41,22 @@ export const getPaymentConfig = async (req, res) => {
   }
 };
 
+// In paymentController.js - Update initiatePayment
 export const initiatePayment = async (req, res) => {
   try {
     const { amount, orderId } = req.body;
+    
+    // Validate amount
+    if (amount > 1999) {
+      return res.status(400).json({ error: 'Maximum amount is ₹1999' });
+    }
+
+    // Verify merchant configuration
+    const config = await PaymentConfig.findOne({});
+    if (!config?.isMerchantAccount) {
+      return res.status(400).json({ error: 'Merchant account not configured' });
+    }
+
     const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     
     paymentSessions.set(sessionId, {
@@ -59,6 +72,7 @@ export const initiatePayment = async (req, res) => {
     res.status(500).json({ error: 'Payment initiation failed' });
   }
 };
+
 
 export const checkPaymentStatus = async (req, res) => {
   try {
