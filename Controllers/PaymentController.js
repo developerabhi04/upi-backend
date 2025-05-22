@@ -57,15 +57,19 @@ export const initiatePayment = async (req, res) => {
   try {
     const { amount, orderId } = req.body;
     
-    // Validate amount
     if (amount > 2000 || amount <= 0) {
       return res.status(400).json({ error: 'Amount must be between ₹1 and ₹2000' });
     }
 
-    // Verify merchant configuration
+    // Get merchant config
     const config = await PaymentConfig.findOne({});
     if (!config) {
-      return res.status(400).json({ error: 'Merchant account not configured' });
+      return res.status(400).json({ error: 'Merchant configuration not found' });
+    }
+
+    // Validate required fields
+    if (!config.payeeVpa || !config.payeeName) {
+      return res.status(400).json({ error: 'Merchant configuration incomplete' });
     }
 
     const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -76,7 +80,11 @@ export const initiatePayment = async (req, res) => {
       status: 'pending',
       created: Date.now(),
       attempts: 0,
-      config: config // Store config with session
+      config: { // Only send necessary fields
+        payeeVpa: config.payeeVpa,
+        payeeName: config.payeeName,
+        mcc: config.mcc
+      }
     });
 
     res.json({ 
