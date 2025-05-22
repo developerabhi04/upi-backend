@@ -1,13 +1,14 @@
 // routes/paymentRoutes.js
 import express from 'express';
-import { getVpaConfig, paymentStatus, setVpaConfig, verifyConfig } from '../Controllers/PaymentController.js';
+import { checkPaymentStatus, getPaymentConfig, initiatePayment, setPaymentConfig } from '../Controllers/PaymentController.js';
 
 const router = express.Router();
 
 
-router.get('/config', getVpaConfig);
-router.post('/config', setVpaConfig);
-router.get('/verify-config', verifyConfig);
-router.get('/status/:orderId', paymentStatus);
+// Merchant Configuration
+router.get('/config', getPaymentConfig);
+router.post('/config', setPaymentConfig);
+router.post('/initiate', initiatePayment);
+router.get('/status/:sessionId', checkPaymentStatus);
 
 export default router;

@@ -1,60 +1,85 @@
 import PaymentConfig from '../Model/PaymentModel.js';
 
+const paymentSessions = new Map();
 
-export const setVpaConfig = async (req, res) => {
-  try {
-    const { payeeVpa, payeeName, isMerchantAccount, mcc, gstin } = req.body;
-    
-    if (!payeeVpa || !payeeName || !mcc) {
-      return res.status(400).json({ error: 'VPA, Name, and MCC required' });
+// Session cleanup every 15 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [sessionId, session] of paymentSessions) {
+    if (now - session.created > 900000) {
+      paymentSessions.delete(sessionId);
     }
+  }
+}, 900000);
 
-    const validMCC = ['6012', '6051', '6211']; // Add your valid MCC codes
-    if (!validMCC.includes(mcc)) {
-      return res.status(400).json({ error: 'Invalid MCC code for banking services' });
+export const setPaymentConfig = async (req, res) => {
+  try {
+    const { payeeVpa, payeeName, mcc, gstin } = req.body;
+    
+    if (!/^\d{10}@idfcbank$/.test(payeeVpa)) {
+      return res.status(400).json({ error: 'Invalid IDFC Bank VPA' });
     }
 
     const config = await PaymentConfig.findOneAndUpdate(
       {},
-      { payeeVpa, payeeName, isMerchantAccount, mcc, gstin },
+      { payeeVpa, payeeName, mcc, gstin },
       { upsert: true, new: true }
     );
-    
-    res.status(200).json(config);
+
+    res.json(config);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-export const getVpaConfig = async (req, res) => {
+export const getPaymentConfig = async (req, res) => {
   try {
     const config = await PaymentConfig.findOne({});
-    config ? res.status(200).json(config) : res.status(404).json({ error: 'VPA not configured' });
+    config ? res.json(config) : res.status(404).json({ error: 'No configuration found' });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-export const verifyConfig = async (req, res) => {
+export const initiatePayment = async (req, res) => {
   try {
-    const config = await PaymentConfig.findOne({});
-    const valid = config?.isMerchantAccount && config?.mcc?.length === 4;
-    res.status(200).json({ valid });
+    const { amount, orderId } = req.body;
+    const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    
+    paymentSessions.set(sessionId, {
+      amount: parseFloat(amount),
+      orderId,
+      status: 'pending',
+      created: Date.now(),
+      attempts: 0
+    });
+
+    res.json({ sessionId });
   } catch (error) {
-    res.status(500).json({ valid: false });
+    res.status(500).json({ error: 'Payment initiation failed' });
   }
 };
 
-export const paymentStatus = async (req, res) => {
+export const checkPaymentStatus = async (req, res) => {
   try {
-    const { orderId } = req.params;
-    // Implement actual bank API integration here
-    res.status(200).json({ 
-      status: 'success',
-      utr: `UTR${Date.now()}`,
-      timestamp: new Date().toISOString()
+    const { sessionId } = req.params;
+    const session = paymentSessions.get(sessionId);
+
+    if (!session) return res.status(404).json({ error: 'Invalid session' });
+
+    // Mock status update
+    session.attempts++;
+    if (session.attempts >= 2 || Math.random() > 0.6) {
+      session.status = 'success';
+      session.utr = `UTR${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    }
+
+    res.json({
+      status: session.status,
+      utr: session.utr,
+      amount: session.amount
     });
   } catch (error) {
-    res.status(500).json({ error: 'Payment verification failed' });
+    res.status(500).json({ error: 'Status check failed' });
   }
 };
