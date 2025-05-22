@@ -4,7 +4,15 @@ const paymentConfigSchema = new mongoose.Schema({
   payeeVpa: {
     type: String,
     required: true,
-    match: [/^\d{10}@idfcbank$/, 'Invalid IDFC Bank VPA format']
+    match: [/^\d{10}@idfcbank$/, 'Invalid IDFC Bank VPA format'],
+
+    validate: {
+      validator: function(v) {
+        // Reject common non-merchant patterns
+        return !v.match(/^\d{10}@(idfcbank|oksbi|ybl|axl|paytm)$/);
+      },
+      message: 'This UPI ID format is not supported for merchant payments'
+    }
   },
   payeeName: {
     type: String,

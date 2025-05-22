@@ -67,6 +67,12 @@ export const initiatePayment = async (req, res) => {
       return res.status(400).json({ error: 'Merchant configuration not found' });
     }
 
+    // Force merchant flags for IDFC accounts
+    if (config.payeeVpa.endsWith('@idfcbank')) {
+      config.isMerchantAccount = true;
+      config.merchantCategory = 'RETAIL'; // Default category
+    }
+
     // Validate required fields
     if (!config.payeeVpa || !config.payeeName) {
       return res.status(400).json({ error: 'Merchant configuration incomplete' });
