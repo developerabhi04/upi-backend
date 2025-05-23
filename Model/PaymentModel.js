@@ -5,7 +5,6 @@ const paymentConfigSchema = new mongoose.Schema({
     type: String,
     required: true,
     match: [/^\d{10}@idfcbank$/, 'Invalid IDFC Bank VPA format'],
-
     validate: {
       validator: function(v) {
         // Reject common non-merchant patterns
@@ -33,16 +32,14 @@ const paymentConfigSchema = new mongoose.Schema({
     required: true,
     default: false,
     validate: {
-      validator: function(v) {
-        return v === true; // Must be true for payments
-      },
+      validator: (v) => v === true,
       message: 'Must be a merchant account'
     }
   },
   merchantCategory: {
     type: String,
     required: true,
-    enum: ['RETAIL', 'EDUCATION', 'SERVICES'] // Add appropriate categories
+    enum: ['RETAIL', 'EDUCATION', 'SERVICES']
   },
   isActive: {
     type: Boolean,

@@ -1,23 +1,21 @@
 import rateLimit from 'express-rate-limit';
 
 export const paymentLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 30, // Increased limit
-  keyGenerator: (req) => {
-    // More sophisticated fingerprinting
-    const ip = req.headers['x-forwarded-for'] || req.ip;
-    const uaHash = crypto
-      .createHash('sha256')
-      .update(req.headers['user-agent'])
-      .digest('hex')
-      .slice(0, 8);
-    return `${ip}_${uaHash}`;
-  },
-  handler: (req, res) => res.status(429).json({
-    error: 'Transaction limit exceeded. Please try again later.'
-  }),
-  skip: (req) => {
-    // Skip rate limiting for certain conditions
-    return req.method === 'OPTIONS';
-  }
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+  handler: (req, res) => res.status(429).json({ error: 'Too many attempts. Try again later.' })
 });
+
+export const requestSanitizer = (req, res, next) => {
+  // add a tiny random offset only if the amount is a round multiple of 100
+  if (req.body.amount % 100 === 0) {
+    req.body.amount = parseInt(req.body.amount) + Math.floor(Math.random() * 19) + 1;
+  }
+
+  if (!/^[a-z0-9-_]{10,50}$/i.test(req.body.orderId)) {
+    return res.status(400).json({ error: 'Invalid order format' });
+  }
+
+  next();
+};

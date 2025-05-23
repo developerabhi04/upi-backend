@@ -1,41 +1,26 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from "dotenv";
+import dotenv from 'dotenv';
 import { connectDB } from './database/database.js';
 import PaymentRoute from './Routes/PaymentRoute.js';
 
-dotenv.config({
-  path: "./database/.env",
-});
-
-
+dotenv.config({ path: './database/.env' });
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-const MONGODB = process.env.MONGO_URL;
 
-// Connect to MongoDB
-connectDB(MONGODB);
-
+connectDB(process.env.MONGO_URL);
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+app.use(cors({
+  origin: process.env.CLIENT_URL,
+  methods: ['GET','POST','OPTIONS'],
+  credentials: true
+}));
 
-app.use(
-  cors({
-    origin: process.env.CLIENT_URL, // Default to localhost if CLIENT_URL is missing
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Requested-With'
-    ],
-    credentials: true,
-    preflightContinue: false,
-    optionsSuccessStatus: 204
-  })
-);
-
+// Security headers
 app.use((req, res, next) => {
   res.header('Content-Security-Policy', "default-src 'self' https:;");
   res.header('X-Content-Type-Options', 'nosniff');
@@ -43,21 +28,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Body Parsers
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Routes
 app.use('/api/v1/payment', PaymentRoute);
 
-// Health Check
-app.get('/', (req, res) => {
-  res.json({ status: 'active', version: '1.0.0' });
-});
+app.get('/', (req, res) => res.json({ status: 'active', version: '1.0.0' }));
 
-// Error Handling
+// Error handler (catches thrown errors too)
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('[GLOBAL ERROR]', err.stack);
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
