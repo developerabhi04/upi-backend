@@ -1,12 +1,9 @@
-import PaymentConfig from '../Model/PaymentModel.js';
 import { v4 as uuidv4 } from 'uuid';
-import crypto from 'crypto';
+import PaymentConfig from '../Model/PaymentModel.js';
 
 const paymentSessions = new Map();
 const transactionHistory = new Map();
 const IP_RATE_LIMIT = new Map();
-
-
 
 // Cleanup jobs
 setInterval(() => {
@@ -21,48 +18,33 @@ setInterval(() => {
   }
 }, 60000);
 
-
-// Enhanced natural variation with more realistic patterns
 const NATURAL_VARIATION = {
   getVariedAmount: (amount) => {
     const base = parseFloat(amount);
-    // More natural variation (1-5% or ₹5-20)
-    const variation = Math.min(base * (0.01 + Math.random() * 0.04), 20); 
+    const variation = Math.min(base * 0.03, 15); // Max 3% or ₹15 variation
     const varied = base + (Math.random() * variation * 2 - variation);
-    return Math.max(1, Math.min(2000, Number(varied.toFixed(2))))
+    return Math.max(1, Math.min(2000, Number(varied.toFixed(2))));
   },
-  randomDelay: () => 1000 + Math.random() * 7000, // 1-8 second delay
-  generateCustomerRef: () => `CUST${Math.floor(10000 + Math.random() * 90000)}`,
-  generateTxnNote: () => {
-    const notes = [
-      "Online purchase",
-      "Merchant payment",
-      "Shopping",
-      "Service fee",
-      "Subscription"
-    ];
-    return notes[Math.floor(Math.random() * notes.length)];
-  }
+  randomDelay: () => 1000 + Math.random() * 4000, // 1-5 second delay
 };
-
 
 export const setPaymentConfig = async (req, res) => {
   try {
     const { payeeVpa, payeeName, mcc, gstin, merchantCategory } = req.body;
-    
+
     if (!/^\d{10}@idfcbank$/.test(payeeVpa)) {
       return res.status(400).json({ error: 'Invalid IDFC Bank VPA. Must be 10 digits followed by @idfcbank' });
     }
 
     const config = await PaymentConfig.findOneAndUpdate(
       {},
-      { 
-        payeeVpa, 
-        payeeName, 
-        mcc, 
+      {
+        payeeVpa,
+        payeeName,
+        mcc,
         gstin,
         merchantCategory,
-        isMerchantAccount: true // Force merchant account
+        isMerchantAccount: true
       },
       { upsert: true, new: true }
     );
@@ -85,94 +67,70 @@ export const getPaymentConfig = async (req, res) => {
   }
 };
 
-
 export const initiatePayment = async (req, res) => {
   try {
-    const ip = req.headers['x-forwarded-for'] || req.ip;
+    // Fraud prevention checks
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
-     if (!req.body.amount || typeof req.body.amount !== 'number') {
-      return res.status(400).json({ error: 'Invalid amount format' });
-    }
-
-    // Verify MongoDB connection
-    if (mongoose.connection.readyState !== 1) {
-      console.error('Database not connected!');
-      return res.status(500).json({ error: 'Database connection failed' });
-    }
-
-  
-
-    // Validate VPA format
-    if (!config.payeeVpa || !/^\d{10}@idfcbank$/.test(config.payeeVpa)) {
-      console.error('Invalid VPA in DB:', config.payeeVpa);
-      return res.status(500).json({ error: 'Invalid merchant VPA configuration' });
-    }
-    
-    // More permissive rate limiting
-    const rateLimitKey = `limit_${ip}`;
-    if (IP_RATE_LIMIT.has(rateLimitKey)) {
-      const entry = IP_RATE_LIMIT.get(rateLimitKey);
-      if (Date.now() - entry.timestamp < 60000 && entry.count >= 5) {
-        return res.status(429).json({ 
-          error: 'Too many requests. Please try again in a minute.' 
-        });
-      }
-    }
-
-    // Validate input
-    if (!req.body.amount || !req.body.orderId) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: amount and orderId' 
+    // Rate limiting (5 transactions/hour per IP)
+    const ipEntry = IP_RATE_LIMIT.get(ip) || { count: 0, timestamp: Date.now() };
+    if (ipEntry.count >= 5) {
+      return res.status(429).json({
+        error: 'Too many requests. Please try again later.'
       });
     }
 
-    const config = await PaymentConfig.findOne().lean();
-    if (!config) {
+    // Request validation
+    const { amount, orderId } = req.body;
+    const safeAmount = NATURAL_VARIATION.getVariedAmount(amount);
+    const safeOrderId = `${orderId}_${uuidv4().substr(0, 8)}`;
+
+    if (safeAmount > 2000 || safeAmount <= 0) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+
+    // Merchant configuration
+    const config = await PaymentConfig.findOne();
+    if (!config?.payeeVpa || !config.payeeName) {
       return res.status(400).json({ error: 'Merchant not configured' });
     }
 
-    // Create more natural session data
-    const sessionId = `sess_${Date.now()}_${uuidv4().slice(0, 8)}`;
-    const customerRef = NATURAL_VARIATION.generateCustomerRef();
-    const txnNote = NATURAL_VARIATION.generateTxnNote();
-
+    // Create payment session
+    const sessionId = `sess_${Date.now()}_${uuidv4().substr(0, 6)}`;
     paymentSessions.set(sessionId, {
-      amount: NATURAL_VARIATION.getVariedAmount(req.body.amount),
-      originalAmount: parseFloat(req.body.amount),
-      orderId: req.body.orderId,
-      customerRef,
-      txnNote,
+      amount: safeAmount,
+      orderId: safeOrderId,
       status: 'pending',
       created: Date.now(),
-      attempts: 0,
       config: {
         payeeVpa: config.payeeVpa,
         payeeName: config.payeeName,
         mcc: config.mcc,
-        merchantCategory: config.merchantCategory
+        isIDFC: config.payeeVpa.endsWith('@idfcbank')
       },
+      attempts: 0,
       ip
     });
 
-    // Update rate limit
-    if (!IP_RATE_LIMIT.has(rateLimitKey)) {
-      IP_RATE_LIMIT.set(rateLimitKey, { count: 1, timestamp: Date.now() });
-    } else {
-      IP_RATE_LIMIT.get(rateLimitKey).count++;
-    }
-
-    res.json({
-      sessionId,
-      amount: paymentSessions.get(sessionId).amount,
-      payeeVpa: config.payeeVpa,
-      payeeName: config.payeeName,
-      customerRef,
-      txnNote
+    // Update rate limits
+    IP_RATE_LIMIT.set(ip, {
+      count: ipEntry.count + 1,
+      timestamp: Date.now()
     });
 
-  } catch (err) {
-    res.status(500).json({ 
+    // Return both sessionId and the unique safeOrderId
+    res.json({
+      sessionId,
+      orderId: safeOrderId,
+      amount: safeAmount,
+      payeeVpa: config.payeeVpa,
+      payeeName: config.payeeName
+    });
+
+  } catch (error) {
+    res.status(500).json({
       error: 'Payment initiation failed',
+      details: error.message
     });
   }
 };
@@ -184,22 +142,12 @@ export const checkPaymentStatus = async (req, res) => {
 
     if (!session) return res.status(404).json({ error: 'Invalid or expired session' });
 
-    // More realistic payment processing simulation
+    // Simulate payment processing
     session.attempts++;
-    
-    // Success probability increases with attempts but never guaranteed
-    const successProbability = Math.min(0.3 + (session.attempts * 0.15), 0.9);
-    
-    if (Math.random() < successProbability) {
+    if (session.attempts >= 3 || Math.random() > 0.7) {
       session.status = 'success';
-      session.utr = `UTR${Date.now()}${Math.floor(1000 + Math.random() * 9000)}`;
+      session.utr = `UTR${Date.now()}${Math.floor(Math.random() * 1000)}`;
       session.timestamp = new Date();
-      
-      // Store in transaction history
-      transactionHistory.set(sessionId, {
-        ...session,
-        settledAt: new Date()
-      });
     }
 
     res.json({
@@ -208,9 +156,7 @@ export const checkPaymentStatus = async (req, res) => {
       amount: session.amount,
       timestamp: session.timestamp,
       payeeVpa: session.config.payeeVpa,
-      payeeName: session.config.payeeName,
-      customerRef: session.customerRef,
-      txnNote: session.txnNote
+      payeeName: session.config.payeeName
     });
   } catch (error) {
     res.status(500).json({ error: 'Status check failed: ' + error.message });
