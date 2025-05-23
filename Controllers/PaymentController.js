@@ -3,16 +3,35 @@ import PaymentConfig from '../Model/PaymentModel.js';
 
 
 const paymentSessions = new Map();
+const transactionHistory = new Map();
+const IP_RATE_LIMIT = new Map();
 
-// Session cleanup every 15 minutes
+
+
+// Cleanup jobs
 setInterval(() => {
   const now = Date.now();
+  // Clear old sessions (15 minutes)
   for (const [sessionId, session] of paymentSessions) {
-    if (now - session.created > 900000) {
-      paymentSessions.delete(sessionId);
-    }
+    if (now - session.created > 900000) paymentSessions.delete(sessionId);
   }
-}, 900000);
+  // Clear IP history (1 hour)
+  for (const [ip, entry] of IP_RATE_LIMIT) {
+    if (now - entry.timestamp > 3600000) IP_RATE_LIMIT.delete(ip);
+  }
+}, 60000);
+
+
+const NATURAL_VARIATION = {
+  getVariedAmount: (amount) => {
+    const base = parseFloat(amount);
+    const variation = Math.min(base * 0.03, 15); // Max 3% or ₹15 variation
+    const varied = base + (Math.random() * variation * 2 - variation);
+    return Math.max(1, Math.min(2000, Number(varied.toFixed(2))))
+  },
+  randomDelay: () => 1000 + Math.random() * 4000, // 1-5 second delay
+};
+
 
 export const setPaymentConfig = async (req, res) => {
   try {
@@ -53,55 +72,61 @@ export const getPaymentConfig = async (req, res) => {
   }
 };
 
+
+
 export const initiatePayment = async (req, res) => {
   try {
-    const { amount, orderId } = req.body;
+    const ip = req.ip;
+    const ipEntry = IP_RATE_LIMIT.get(ip) || { count: 0, timestamp: Date.now() };
     
-    if (amount > 2000 || amount <= 0) {
-      return res.status(400).json({ error: 'Amount must be between ₹1 and ₹2000' });
+    if (ipEntry.count >= 10) { // Increased limit to 10/hour
+      return res.status(429).json({ error: 'Too many requests. Try after 1 hour' });
     }
 
-    // Get merchant config
-    const config = await PaymentConfig.findOne({});
+    const { amount, orderId } = req.body;
+    const config = await PaymentConfig.findOne();
+    
     if (!config) {
-      return res.status(400).json({ error: 'Merchant configuration not found' });
+      return res.status(400).json({ error: 'Merchant not configured' });
     }
 
-    // Force merchant flags for IDFC accounts
-    if (config.payeeVpa.endsWith('@idfcbank')) {
-      config.isMerchantAccount = true;
-      config.merchantCategory = 'RETAIL'; // Default category
-    }
-
-    // Validate required fields
-    if (!config.payeeVpa || !config.payeeName) {
-      return res.status(400).json({ error: 'Merchant configuration incomplete' });
-    }
-
-    const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // Generate unique session ID with crypto randomness
+    const sessionId = crypto.randomBytes(16).toString('hex');
+    const variedAmount = NATURAL_VARIATION.getVariedAmount(amount);
     
     paymentSessions.set(sessionId, {
-      amount: parseFloat(amount),
-      orderId,
+      amount: variedAmount,
+      originalAmount: parseFloat(amount),
+      orderId: `${orderId}_${crypto.randomBytes(4).toString('hex')}`,
       status: 'pending',
       created: Date.now(),
-      attempts: 0,
-      config: { // Only send necessary fields
+      config: {
         payeeVpa: config.payeeVpa,
         payeeName: config.payeeName,
-        mcc: config.mcc
-      }
+        mcc: config.mcc,
+        isIDFC: config.payeeVpa.endsWith('@idfcbank')
+      },
+      attempts: 0,
+      ip
     });
 
-    res.json({ 
+    IP_RATE_LIMIT.set(ip, { count: ipEntry.count + 1, timestamp: Date.now() });
+
+    res.json({
       sessionId,
+      amount: variedAmount, // Send varied amount to frontend
+      originalAmount: parseFloat(amount),
+      orderId,
       payeeVpa: config.payeeVpa,
       payeeName: config.payeeName
     });
+
   } catch (error) {
     res.status(500).json({ error: 'Payment initiation failed: ' + error.message });
   }
 };
+
+
 
 export const checkPaymentStatus = async (req, res) => {
   try {
