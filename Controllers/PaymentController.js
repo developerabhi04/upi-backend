@@ -73,80 +73,69 @@ export const getPaymentConfig = async (req, res) => {
 };
 
 
-
 export const initiatePayment = async (req, res) => {
   try {
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    // Debugging: Log incoming request
+    console.log('Incoming request:', req.body);
     
-    // Enhanced IP rate limiting
-    const ipEntry = IP_RATE_LIMIT.get(ip) || { count: 0, timestamp: Date.now() };
-    if (ipEntry.count >= 10) {
-      return res.status(429).json({ 
-        error: 'Too many requests. Please try again later.' 
+    const ip = req.headers['x-forwarded-for'] || req.ip;
+    console.log(`Request from IP: ${ip}`);
+
+    // Validate input
+    if (!req.body.amount || !req.body.orderId) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: amount and orderId' 
       });
     }
 
-    // Validate request body
-    const { amount, orderId } = req.body;
-    if (!amount || !orderId) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    // Validate merchant configuration
-    const config = await PaymentConfig.findOne();
+    // Get merchant config with error logging
+    const config = await PaymentConfig.findOne().lean();
+    console.log('Merchant config:', config);
+    
     if (!config) {
+      console.error('Merchant configuration missing');
       return res.status(400).json({ error: 'Merchant not configured' });
     }
 
     // Validate VPA format
-    if (!config.payeeVpa.match(/^\d{10}@idfcbank$/)) {
-      return res.status(400).json({ error: 'Invalid merchant VPA configuration' });
+    if (!/^\d{10}@idfcbank$/.test(config.payeeVpa)) {
+      console.error('Invalid VPA format in config:', config.payeeVpa);
+      return res.status(500).json({ error: 'Invalid merchant configuration' });
     }
 
-    // Create payment session with proper UUID
-    const sessionId = `sess_${Date.now()}_${uuidv4().slice(0, 8)}`; // Fixed UUID usage
-    const safeAmount = NATURAL_VARIATION.getVariedAmount(amount);
+    // Create session with enhanced logging
+    const sessionId = `sess_${Date.now()}_${uuidv4().slice(0, 8)}`;
+    console.log('Creating session:', sessionId);
 
     paymentSessions.set(sessionId, {
-      amount: safeAmount,
-      originalAmount: parseFloat(amount),
-      orderId: `${orderId}_${uuidv4().slice(0, 8)}`, // Fixed UUID usage
+      amount: NATURAL_VARIATION.getVariedAmount(req.body.amount),
+      originalAmount: parseFloat(req.body.amount),
+      orderId: req.body.orderId,
       status: 'pending',
       created: Date.now(),
       config: {
         payeeVpa: config.payeeVpa,
         payeeName: config.payeeName,
-        mcc: config.mcc,
-        isIDFC: true // Force IDFC validation
+        mcc: config.mcc
       },
-      attempts: 0,
       ip
-    });
-
-    // Update rate limits
-    IP_RATE_LIMIT.set(ip, { 
-      count: ipEntry.count + 1, 
-      timestamp: Date.now() 
     });
 
     res.json({
       sessionId,
-      amount: safeAmount,
-      originalAmount: parseFloat(amount),
-      orderId,
+      amount: paymentSessions.get(sessionId).amount,
       payeeVpa: config.payeeVpa,
       payeeName: config.payeeName
     });
 
-  } catch (error) {
-    console.error('Initiation Error:', error); // Add logging
+  } catch (err) {
+    console.error('❗ Initiation Error:', err.stack); // Log full error stack
     res.status(500).json({ 
       error: 'Payment initiation failed',
-      details: error.message
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
-
 
 
 export const checkPaymentStatus = async (req, res) => {
