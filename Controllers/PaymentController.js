@@ -89,6 +89,24 @@ export const getPaymentConfig = async (req, res) => {
 export const initiatePayment = async (req, res) => {
   try {
     const ip = req.headers['x-forwarded-for'] || req.ip;
+
+     if (!req.body.amount || typeof req.body.amount !== 'number') {
+      return res.status(400).json({ error: 'Invalid amount format' });
+    }
+
+    // Verify MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      console.error('Database not connected!');
+      return res.status(500).json({ error: 'Database connection failed' });
+    }
+
+  
+
+    // Validate VPA format
+    if (!config.payeeVpa || !/^\d{10}@idfcbank$/.test(config.payeeVpa)) {
+      console.error('Invalid VPA in DB:', config.payeeVpa);
+      return res.status(500).json({ error: 'Invalid merchant VPA configuration' });
+    }
     
     // More permissive rate limiting
     const rateLimitKey = `limit_${ip}`;
@@ -155,7 +173,6 @@ export const initiatePayment = async (req, res) => {
   } catch (err) {
     res.status(500).json({ 
       error: 'Payment initiation failed',
-      details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
